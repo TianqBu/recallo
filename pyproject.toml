@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "recallo"
+version = "0.1.0"
+description = "Local-first browser agent with long-term memory, focused on paper reading."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11,<4.0"
+authors = [{ name = "Recallo contributors" }]
+keywords = ["browser-agent", "ai", "memory", "arxiv", "rag", "local-first"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "browser-use==0.12.6",
+    "trafilatura>=1.6",
+    "httpx>=0.27",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+vector = ["sqlite-vec>=0.1.6"]
+mineru = ["mineru>=3.1.4"]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+recallo = "recallo.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/recallo/recallo"
+Repository = "https://github.com/recallo/recallo"
+Issues = "https://github.com/recallo/recallo/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["recallo*"]
+
+[tool.setuptools.package-data]
+recallo = ["schema.sql"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
