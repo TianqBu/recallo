@@ -66,11 +66,22 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
         return text[: cfg.text_excerpt_chars]
 
     async def _on_step(state: Any, model_output: Any, step_idx: int) -> None:
-        """browser-use signature: (BrowserStateSummary, AgentOutput, int)."""
+        """browser-use signature: (BrowserStateSummary, AgentOutput, int).
+
+        BrowserStateSummary fields verified against
+        sources/browser-use/browser_use/browser/views.py: url, title, dom_state,
+        screenshot, page_info, ... — no `page_text` attribute exists.
+
+        AgentOutput fields verified against
+        sources/browser-use/browser_use/agent/views.py: thinking, action (list of
+        ActionModel). ActionModel is a dynamic Pydantic model whose first dumped
+        key is the action name (e.g. 'click_element', 'navigate', 'done').
+        """
         try:
             url = getattr(state, "url", None)
+            title = getattr(state, "title", None)
+
             if url and is_blocked(url):
-                # honour the blacklist — drop URL details, keep timing
                 memory.insert_trace(
                     Trace(
                         episode_id=episode.id,
@@ -85,7 +96,11 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
 
             actions = getattr(model_output, "action", None) or []
             first = actions[0] if actions else None
-            action_type = type(first).__name__ if first is not None else "step"
+            action_type = "step"
+            if first is not None and hasattr(first, "model_dump"):
+                dumped = first.model_dump(exclude_unset=True) or {}
+                action_type = next(iter(dumped.keys()), "step")
+
             thinking = getattr(model_output, "thinking", None)
 
             memory.insert_trace(
@@ -96,7 +111,7 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
                     ts=int(time.time()),
                     url=url,
                     selector=None,
-                    text_excerpt=_excerpt(getattr(state, "page_text", None)),
+                    text_excerpt=_excerpt(title),
                     thinking=_excerpt(thinking),
                 )
             )

@@ -42,10 +42,10 @@ def is_blocked(url: str, extra_blacklist: frozenset[str] | None = None) -> bool:
         return False
     blacklist = _DEFAULT_BLACKLIST | (extra_blacklist or frozenset())
     parts = host.split(".")
-    for i in range(len(parts) - 1):
+    for i in range(len(parts)):
         if ".".join(parts[i:]) in blacklist:
             return True
-    return host in blacklist
+    return False
 
 
 def redact(url: str) -> str:
