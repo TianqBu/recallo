@@ -24,7 +24,9 @@ a single SQLite file you can inspect, back up, share, or delete.
 ## Quick start
 
 ```bash
-pip install recallo                    # or `pip install -e .` from a clone
+# Recallo isn't on PyPI yet — install straight from GitHub.
+pip install git+https://github.com/TianqBu/recallo.git
+
 recallo init                           # creates ~/.recallo/memory.db
 recallo explore "Summarize arxiv:2310.11511"
 # ...later...
@@ -116,7 +118,8 @@ OpenAI / Anthropic / your local Ollama.) Local protections:
 - M1 — installable skeleton, `init`, `explore` runs browser-use ✅
 - M2 — sqlite-vec semantic `recall` + FTS5 fallback, fact extraction from
   agent history ✅
-- M3 — `pip install recallo` from PyPI, demo, docs ⬅ current
+- M3 — install-from-GitHub works, release docs, demo script ⬅ current
+  (PyPI publish wired up but deferred until there's a reason to claim the name)
 - M4 — Memory Replay timeline ✅, MinerU three-tier fallback, broader tests
 
 ## Standing on the shoulders of giants

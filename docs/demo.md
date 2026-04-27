@@ -4,8 +4,8 @@ A reproducible script for capturing the README demo (asciinema or
 `vhs`-style GIF). Run from a clean machine with `OPENAI_API_KEY` set.
 
 ```bash
-# Install
-pip install recallo
+# Install (PyPI release pending — for now, install from GitHub)
+pip install git+https://github.com/TianqBu/recallo.git
 
 # Initialise local memory
 recallo init
