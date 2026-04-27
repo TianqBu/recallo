@@ -31,6 +31,9 @@ recallo explore "Summarize arxiv:2310.11511"
 recallo recall "what did that Self-RAG paper say about retrieval?"
 # Force keyword mode (FTS5) when you don't want to spend on embeddings:
 recallo recall "self rag" --mode keyword
+# See every episode you've run, then drill into one (git-style id prefixes):
+recallo replay
+recallo replay 6e6c4710
 ```
 
 ### Provider keys
@@ -95,9 +98,10 @@ webmail, and health sites. Edit `recallo/safety.py` to extend it.
 
 - M1 — installable skeleton, `init`, `explore` runs browser-use ✅
 - M2 — sqlite-vec semantic `recall` + FTS5 fallback, fact extraction from
-  agent history ✅ ⬅ current
+  agent history ✅
 - M3 — packaging for `pip install recallo` from PyPI, demo GIF, docs
-- M4 — Memory Replay timeline, MinerU three-tier fallback, broader tests
+- M4 — Memory Replay timeline ✅ ⬅ current, MinerU three-tier fallback,
+  broader tests
 
 ## Standing on the shoulders of giants
 

@@ -66,7 +66,7 @@ recallo (CLI)
 | **M1** | ✅ `pip install -e .` 跑通 | pyproject、CLI 骨架、SQLite init、browser-use spike |
 | **M2** | ✅ 能记能召回 | sqlite-vec、OpenAIEmbedder、register_done_callback 提取事实、语义+FTS5 双轨 |
 | **M3** | 给陌生人用 | README + GIF、`pip install recallo`、Ollama fallback、demo |
-| **M4** | 打磨可选 | Memory Replay CLI、MinerU 三层 fallback、测试 80% |
+| **M4** | 部分:Memory Replay ✅ | ~~Memory Replay CLI~~、MinerU 三层 fallback、测试 80% |
 
 总计 **1-2 周一个开发者**。
 
