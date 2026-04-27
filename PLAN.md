@@ -85,7 +85,7 @@ recallo (CLI)
 | MinerU 子进程 + HTTP 集成 | 实地源码审计(无 Python lib API) |
 | stash 整个砍 | 实地源码审计(零测试 + 维护停滞) |
 | 浏览器执行轨迹用 `register_new_step_callback` | 实地源码审计 |
-| Windows 入口强制 `WindowsSelectorEventLoopPolicy` | 实地源码审计 |
+| Windows 留默认 ProactorEventLoop | 实地 `recallo explore` 失败验证 |
 
 ---
 
@@ -94,7 +94,7 @@ recallo (CLI)
 | 风险 | 对策 |
 |---|---|
 | browser-use 0.12.x 升级 break | 锁版本 + 测试覆盖 callback 签名 |
-| Windows asyncio 挂起 | CLI 入口设 `WindowsSelectorEventLoopPolicy` |
+| Windows asyncio | 默认 ProactorEventLoop 即可,**不要**强制 Selector(那会让 browser-use 启不了 Chromium) |
 | Chromium 路径检测失败 | README 写 `BROWSER_USE_BROWSER_PATH` 用法 |
 | MinerU 模型下载 500MB-2GB 慢 | trafilatura 降级 + 国内 ModelScope 镜像 |
 | 隐私(浏览内容被存) | 域名黑名单(银行/邮箱/医疗)+ 本地加密(可选) |

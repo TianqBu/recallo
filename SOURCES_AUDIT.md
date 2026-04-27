@@ -43,7 +43,7 @@ agent = Agent(task=..., llm=..., register_done_callback=on_step_end)
 **不需要 monkey-patch,不需要日志解析**。这是项目能干净集成的关键。
 
 ### TOP 3 雷区
-1. **Windows asyncio**:必须 `WindowsSelectorEventLoopPolicy`,不然 Playwright/CDP 握手挂起
+1. **Windows asyncio**:**留在默认 ProactorEventLoop,不要改**(原审计建议错了)。Selector 循环在 Windows 不支持 `create_subprocess_exec`,而 browser-use 需要它启 Chromium,会抛 `NotImplementedError`。aiohttp/cdp-use 现在跟 Proactor 兼容
 2. **Chromium 路径**:Windows 中文路径 + PATH 大小写敏感性会炸,需 `BROWSER_USE_BROWSER_PATH` 显式指定
 3. **0.12.x 不稳定**:Agent.__init__ 参数在 v0.12 内已改 3 次。**必须 pin 到 ==0.12.6**
 

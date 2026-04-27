@@ -57,7 +57,8 @@ the arxiv abstract page.
 
 ## Windows notes
 
-- Recallo sets `WindowsSelectorEventLoopPolicy` automatically; no action needed
+- Recallo keeps the default `ProactorEventLoop`; do not override it (Selector
+  loops can't `create_subprocess_exec`, which browser-use needs for Chromium)
 - If Chrome is in a non-default location, set
   `BROWSER_USE_BROWSER_PATH=C:\Path\To\chrome.exe`
 

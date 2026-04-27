@@ -18,15 +18,16 @@ logging.basicConfig(
 
 
 def _apply_windows_event_loop_policy() -> None:
-    """browser-use + Playwright need WindowsSelectorEventLoopPolicy on Windows.
+    """Leave Windows on its default ProactorEventLoop.
 
-    See SOURCES_AUDIT.md, browser-use deep read, landmine #1.
+    Earlier guidance suggested forcing WindowsSelectorEventLoopPolicy because
+    of historical aiohttp issues, but Selector loops do *not* support
+    `asyncio.create_subprocess_exec` on Windows, which browser-use needs to
+    launch Chromium. Modern aiohttp/cdp-use work fine on Proactor, so the
+    correct call is to keep the default. Verified by an actual `recallo
+    explore` failure with `NotImplementedError` from `_make_subprocess_transport`.
     """
-    if sys.platform == "win32":
-        try:
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        except Exception:
-            pass
+    return
 
 
 @click.group(help="Recallo — local-first browser agent with long-term memory.")
