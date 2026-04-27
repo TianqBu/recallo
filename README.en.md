@@ -1,0 +1,176 @@
+# Recallo
+
+[![CI](https://github.com/TianqBu/recallo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TianqBu/recallo/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](pyproject.toml)
+
+**Languages:** [简体中文](README.md) · English
+
+> Give your browser agent a memory it can prove.
+> Local-first browser agent with long-term memory, focused on paper reading.
+
+Recallo browses arxiv (or any URL you point it at), parses what it sees, and
+stores everything in a local SQLite database under `~/.recallo/`. Next time
+you ask "what did that Self-RAG paper say about retrieval?", it answers from
+your past sessions — no cloud round-trip, no re-prompting.
+
+```text
+$ recallo explore "Open arxiv 2310.11511 and summarize the Self-RAG abstract"
+[recallo] launching browser-use agent...
+  [0] navigate         https://arxiv.org/abs/2310.11511
+  [1] extract_content  Self-RAG: Learning to Retrieve, Generate, and Critique...
+  [2] done             3 step(s), 2 fact(s) extracted
+[recallo] episode 6e6c4710 stored
+
+# ...close terminal, open it again tomorrow...
+
+$ recallo recall "what did that paper say about retrieval?"
+[recallo] mode=semantic
+- [extract] Self-RAG uses self-reflection tokens to decide when to retrieve  (d=0.214)
+- [extract] On-demand retrieval improves factuality vs. always-retrieve baselines  (d=0.231)
+```
+
+The differentiator is the second command. It runs **without a network round-trip**
+— Recallo answers from `~/.recallo/memory.db` on your disk, even if you're
+offline.
+
+> **Status:** pre-alpha — the four commands below work and have tests, but
+> expect rough edges and breaking changes before v0.2.
+
+## Why local-first?
+
+Atlas, Comet and most "AI browsers" keep your browsing memory on someone
+else's servers. Recallo keeps it in `~/.recallo/memory.db` on your machine —
+a single SQLite file you can inspect, back up, share, or delete.
+
+## Quick start
+
+```bash
+# Recallo isn't on PyPI yet — install straight from GitHub.
+pip install git+https://github.com/TianqBu/recallo.git
+
+recallo init                           # creates ~/.recallo/memory.db
+recallo explore "Summarize arxiv:2310.11511"
+# ...later...
+recallo recall "what did that Self-RAG paper say about retrieval?"
+# Force keyword mode (FTS5) when you don't want to spend on embeddings:
+recallo recall "self rag" --mode keyword
+# See every episode you've run, then drill into one (git-style id prefixes):
+recallo replay
+recallo replay 6e6c4710
+```
+
+### Provider keys
+
+Recallo is BYOK. Set one of:
+
+```bash
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+# or run a local Ollama server, no key needed
+```
+
+### Optional: high-quality PDF parsing via MinerU
+
+For full-text academic PDF parsing (figures, tables, equations), start
+MinerU's HTTP API in another terminal:
+
+```bash
+pip install "mineru[pipeline]"
+# Mainland China users: faster model download
+export MINERU_MODEL_SOURCE=modelscope
+mineru-models-download
+mineru-api --host 127.0.0.1 --port 8000
+```
+
+If `mineru-api` is not running, Recallo falls back to `trafilatura`, then to
+the arxiv abstract page.
+
+> PDF parsing in Recallo is powered by [MinerU](https://github.com/opendatalab/MinerU).
+
+## Windows notes
+
+- Recallo keeps the default `ProactorEventLoop`; do not override it (Selector
+  loops can't `create_subprocess_exec`, which browser-use needs for Chromium)
+- If Chrome is in a non-default location, set
+  `BROWSER_USE_BROWSER_PATH=C:\Path\To\chrome.exe`
+
+## How it works
+
+```mermaid
+flowchart LR
+    User([you]) -- intent --> CLI[recallo CLI]
+    CLI -- explore --> Cortex[Browser Cortex<br/>browser-use 0.12.6]
+    Cortex -- per-step callback --> Mem[(SQLite + sqlite-vec<br/>~/.recallo/memory.db)]
+    Cortex -- done callback --> Mem
+    CLI -- recall --> Mem
+    CLI -- replay --> Mem
+    Cortex -. PDF .-> Ingestor[Doc Ingestor<br/>MinerU API · trafilatura]
+    Ingestor --> Mem
+```
+
+Three tables (`episodes`, `traces`, `facts`), one FTS5 index, one optional
+`vec0` virtual table. Everything lives in a single SQLite file — no daemon,
+no Docker, no Postgres.
+
+## What's stored
+
+Three tables plus two indexes, all in a single SQLite file:
+
+- `episodes` — one row per task, with intent, status, summary
+- `traces` — per-step browser action records (action, URL, selector, text)
+- `facts` — content extracted from the page, written by the done-callback
+- `facts_fts` — FTS5 keyword index over `facts` (M1 fallback)
+- `fact_vec` — sqlite-vec virtual table, 1536-d float vectors over `facts` (M2)
+
+See `recallo/schema.sql` for the full schema.
+
+### Recall modes
+
+When `OPENAI_API_KEY` is set, `recallo recall` embeds your query and runs
+kNN over `fact_vec`. Without a key, it transparently falls back to FTS5 on
+`facts_fts`. Pass `--mode keyword` or `--mode semantic` to pin the mode.
+
+## Privacy
+
+Recallo never uploads anything to a Recallo-controlled server. (LLM and
+embedding requests still go to whichever provider you've configured —
+OpenAI / Anthropic / your local Ollama.) Local protections:
+
+- **Domain blacklist** — banking, webmail, health portals, private
+  messaging (WhatsApp/Telegram/Messenger/Discord), social DMs
+  (Twitter/X/Instagram), collab tools (Notion/Slack), and password
+  managers are dropped before they hit the trace table. Extend by editing
+  `recallo/safety.py`.
+- **URL scrubbing** — OAuth-style query params (`access_token`,
+  `code`, `session`, `state`, `password`, ...) and URL fragments are
+  stripped before traces are stored.
+- **Secret masking** — common API-key shapes (OpenAI `sk-`, Anthropic
+  `sk-ant-`, AWS, Google, GitHub PAT, Slack tokens, generic
+  `Bearer …`) are replaced with `[redacted-secret]` in episode
+  summaries, page titles, and agent thinking before persisting.
+- **Tight file mode** — `~/.recallo/memory.db` is created with
+  permissions `0o600` on POSIX (no-op on Windows; use NTFS ACLs if
+  you need stricter local isolation).
+
+## Roadmap
+
+- M1 — installable skeleton, `init`, `explore` runs browser-use ✅
+- M2 — sqlite-vec semantic `recall` + FTS5 fallback, fact extraction from
+  agent history ✅
+- M3 — install-from-GitHub works, release docs, demo script ⬅ current
+  (PyPI publish wired up but deferred until there's a reason to claim the name)
+- M4 — Memory Replay timeline ✅, MinerU three-tier fallback, broader tests
+
+## Standing on the shoulders of giants
+
+- [browser-use](https://github.com/browser-use/browser-use) — browser automation
+- [MinerU](https://github.com/opendatalab/MinerU) — academic PDF parsing
+- [trafilatura](https://github.com/adbar/trafilatura) — fallback text extraction
+- [sqlite-vec](https://github.com/asg017/sqlite-vec) — local vector search
+
+See [THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md) for full attribution.
+
+## License
+
+Apache 2.0
