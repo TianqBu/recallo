@@ -216,3 +216,44 @@ class MemoryLane:
                 (limit,),
             )
         )
+
+    # -- replay -------------------------------------------------------------
+
+    def get_episode(self, episode_id: str) -> sqlite3.Row | None:
+        """Look up one episode by exact id."""
+        row = self.conn.execute(
+            "SELECT id, intent, summary, started_at, ended_at, status "
+            "FROM episodes WHERE id = ?",
+            (episode_id,),
+        ).fetchone()
+        return row
+
+    def resolve_episode_id(self, prefix: str) -> list[str]:
+        """Return episode ids whose id starts with ``prefix``.
+
+        Returns one element on a unique match, more than one on ambiguity, and
+        the empty list on no match. CLI callers pick the policy.
+        """
+        rows = self.conn.execute(
+            "SELECT id FROM episodes WHERE id LIKE ? ORDER BY started_at DESC LIMIT 16",
+            (prefix + "%",),
+        ).fetchall()
+        return [r["id"] for r in rows]
+
+    def list_traces(self, episode_id: str) -> list[sqlite3.Row]:
+        return list(
+            self.conn.execute(
+                "SELECT seq, action_type, url, selector, text_excerpt, thinking, ts "
+                "FROM traces WHERE episode_id = ? ORDER BY seq",
+                (episode_id,),
+            )
+        )
+
+    def list_facts(self, episode_id: str) -> list[sqlite3.Row]:
+        return list(
+            self.conn.execute(
+                "SELECT id, kind, content, source_url, ts "
+                "FROM facts WHERE episode_id = ? ORDER BY id",
+                (episode_id,),
+            )
+        )

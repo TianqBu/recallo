@@ -103,19 +103,93 @@ def recall(query: tuple[str, ...], limit: int, mode: str) -> None:
         mem.close()
 
 
-@main.command(help="List recent episodes from local memory.")
-@click.option("--limit", default=20, show_default=True, type=int)
-def replay(limit: int) -> None:
+def _format_ts(ts: int | None) -> str:
+    if not ts:
+        return "-"
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _truncate(text: str | None, n: int) -> str:
+    if not text:
+        return ""
+    text = text.replace("\n", " ").replace("\r", " ")
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
+@main.command(help="List recent episodes, or replay one by id (or unique id prefix).")
+@click.argument("episode", required=False)
+@click.option("--limit", default=20, show_default=True, type=int,
+              help="Max rows when listing.")
+def replay(episode: str | None, limit: int) -> None:
     mem = MemoryLane()
     try:
-        rows = mem.list_episodes(limit=limit)
-        if not rows:
-            click.echo("[recallo] no episodes yet")
+        if episode is None:
+            rows = mem.list_episodes(limit=limit)
+            if not rows:
+                click.echo("[recallo] no episodes yet")
+                return
+            click.echo(f"{'id':<36}  {'status':<8}  {'started':<19}  intent")
+            for row in rows:
+                click.echo(
+                    f"{row['id']}  {row['status']:<8}  "
+                    f"{_format_ts(row['started_at']):<19}  "
+                    f"{_truncate(row['intent'], 60)}"
+                )
             return
-        for row in rows:
+
+        # Resolve id or prefix
+        candidates = mem.resolve_episode_id(episode)
+        if not candidates:
+            click.echo(f"[recallo] no episode matches '{episode}'", err=True)
+            raise click.exceptions.Exit(1)
+        if len(candidates) > 1:
             click.echo(
-                f"{row['id']}  {row['status']:<8}  {row['intent'][:60]}"
+                f"[recallo] '{episode}' is ambiguous, matches {len(candidates)}:",
+                err=True,
             )
+            for cid in candidates[:5]:
+                click.echo(f"  {cid}", err=True)
+            raise click.exceptions.Exit(1)
+        ep = mem.get_episode(candidates[0])
+        if ep is None:
+            click.echo("[recallo] episode disappeared mid-query", err=True)
+            raise click.exceptions.Exit(1)
+
+        traces = mem.list_traces(ep["id"])
+        facts = mem.list_facts(ep["id"])
+        duration = ""
+        if ep["started_at"] and ep["ended_at"]:
+            duration = f" ({ep['ended_at'] - ep['started_at']}s)"
+
+        click.echo(f"Episode {ep['id']}")
+        click.echo(f"  intent : {ep['intent']}")
+        click.echo(f"  status : {ep['status']}")
+        click.echo(f"  start  : {_format_ts(ep['started_at'])}")
+        click.echo(f"  end    : {_format_ts(ep['ended_at'])}{duration}")
+        click.echo(f"  steps  : {len(traces)}")
+        click.echo(f"  facts  : {len(facts)}")
+        if ep["summary"]:
+            click.echo(f"  summary: {_truncate(ep['summary'], 200)}")
+
+        click.echo("\nTimeline:")
+        if not traces:
+            click.echo("  (no steps recorded)")
+        for t in traces:
+            url = _truncate(t["url"], 60)
+            click.echo(f"  [{t['seq']}] {t['action_type']:<18} {url}")
+            if t["text_excerpt"]:
+                click.echo(f"        text:     {_truncate(t['text_excerpt'], 80)}")
+            if t["thinking"]:
+                click.echo(f"        thinking: {_truncate(t['thinking'], 80)}")
+
+        click.echo("\nFacts:")
+        if not facts:
+            click.echo("  (none)")
+        for f in facts:
+            click.echo(f"  - [{f['kind']}] {_truncate(f['content'], 100)}")
+            if f["source_url"]:
+                click.echo(f"      src: {f['source_url']}")
     finally:
         mem.close()
 
