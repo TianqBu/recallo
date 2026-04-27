@@ -8,12 +8,20 @@ available when an :class:`~recallo.embed.Embedder` is wired in.
 
 from __future__ import annotations
 
-import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
+
+# Prefer `pysqlite3-binary` when available — many distro Pythons (notably the
+# python.org / actions/setup-python builds on macOS) ship sqlite3 without
+# loadable-extension support, which sqlite-vec needs. pysqlite3-binary has
+# wheels on Linux + macOS; on Windows the stdlib already supports extensions.
+try:
+    import pysqlite3 as sqlite3  # type: ignore[import-not-found]
+except ImportError:
+    import sqlite3  # type: ignore[no-redef]
 
 import sqlite_vec
 
