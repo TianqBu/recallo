@@ -26,6 +26,10 @@ on:
         type: choice
         options: [testpypi, pypi]
 
+# Opt into Node 24 ahead of GitHub's June 2026 cutover.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 permissions:
   contents: read
 

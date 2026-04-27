@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest a behaviour change or new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for thinking about Recallo! This template trades a little
+        upfront effort for a faster reply.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Lead with the user pain. What is hard / annoying / impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would the ideal behaviour look like?
+      description: |
+        Concrete sketches help: a CLI signature, a sample output, a code
+        snippet. "Make it configurable" is rarely concrete enough.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried / what alternatives did you consider?
+      description: |
+        Knowing what didn't work narrows the design space. Write "none" if
+        this is the first idea.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      multiple: true
+      options:
+        - CLI / UX
+        - Memory / recall
+        - Browser cortex (browser-use integration)
+        - Doc ingestion (PDF / arxiv / trafilatura)
+        - Privacy / safety
+        - Performance
+        - Packaging / distribution
+        - Docs

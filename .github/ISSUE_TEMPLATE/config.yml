@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / discussion
+    url: https://github.com/TianqBu/recallo/discussions
+    about: Open-ended questions, design discussions, or "how do I…" — Discussions are the right place.
+  - name: Security disclosure
+    url: https://github.com/TianqBu/recallo/security/policy
+    about: Vulnerabilities should be reported privately, not as a public issue.

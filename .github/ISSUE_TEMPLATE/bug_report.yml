@@ -1,0 +1,81 @@
+name: Bug report
+description: Something Recallo did wrong (or refused to do)
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug! A small repro saves enormous time.
+
+        **Please do not paste API keys, OAuth tokens, or session URLs.** The
+        scrubber should be catching those, but if it didn't, that's the bug
+        we want to know about — describe shape, not contents.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: One paragraph. What did you run, what did you expect, what did you get?
+      placeholder: |
+        I ran `recallo recall "self rag" --mode semantic` after `recallo init`,
+        expected results, got `[recallo] no matches`. The episode is in
+        `recallo replay`.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The minimum sequence of commands that triggers the bug.
+      render: bash
+      placeholder: |
+        recallo init
+        recallo explore "..."
+        recallo recall "..." --mode semantic
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Recallo version
+      description: Output of `recallo --version`
+      placeholder: "recallo, version 0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      multiple: false
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - WSL
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: LLM provider
+      multiple: false
+      options:
+        - OpenAI
+        - Anthropic
+        - Ollama (local)
+        - none / not relevant
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Run with `RECALLO_LOG=DEBUG` if it helps. Redact anything sensitive.
+      render: text
