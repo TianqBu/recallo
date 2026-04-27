@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Don't run two CI runs for the same branch in parallel; the latest push wins.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install test dependencies
+        # Tests use a fake `browser_use` module via monkeypatch, so we skip the
+        # ~600MB transitive install (browser-use, anthropic, openai, etc.) and
+        # only install what tests actually exercise. `--no-deps` keeps the
+        # editable install of `recallo` lean.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-asyncio click sqlite-vec
+          python -m pip install -e . --no-deps
+
+      - name: Run pytest
+        run: pytest -v
+
+  lint:
+    name: ruff check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff
+        run: python -m pip install ruff
+
+      - name: Lint recallo + tests
+        run: ruff check recallo tests

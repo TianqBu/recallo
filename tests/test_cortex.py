@@ -76,7 +76,8 @@ async def test_run_episode_records_trace_for_each_step(mem: MemoryLane, monkeypa
 
     # Inject a stub `browser_use` module so the deferred import inside
     # run_episode finds our fake Agent without pip-installing browser-use.
-    import sys, types
+    import sys
+    import types
     fake_module = types.ModuleType("browser_use")
     fake_module.Agent = _FakeAgent  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "browser_use", fake_module)
@@ -121,7 +122,8 @@ async def test_run_episode_redacts_blocked_urls(mem: MemoryLane, monkeypatch) ->
     import recallo.cortex as cortex_mod
     monkeypatch.setattr(cortex_mod, "_build_llm", lambda _cfg: object())
 
-    import sys, types
+    import sys
+    import types
     fake_module = types.ModuleType("browser_use")
     fake_module.Agent = _FakeAgent  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "browser_use", fake_module)

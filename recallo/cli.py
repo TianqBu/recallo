@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 
 import click
 
 from . import __version__
 from .embed import get_default_embedder
-from .memory import MemoryLane, default_db_path
+from .memory import MemoryLane
 
 logging.basicConfig(
     level=logging.INFO,
