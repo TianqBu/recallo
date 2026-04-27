@@ -1,6 +1,6 @@
 # Recallo
 
-[![CI](https://github.com/TianqBu/recallo/actions/workflows/ci.yml/badge.svg)](https://github.com/TianqBu/recallo/actions/workflows/ci.yml)
+[![CI](https://github.com/TianqBu/recallo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TianqBu/recallo/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](pyproject.toml)
 
