@@ -103,3 +103,43 @@ def test_resolve_episode_id_escapes_like_wildcards(mem: MemoryLane) -> None:
     # A real prefix still resolves
     real = mem.list_episodes()[0]["id"]
     assert mem.resolve_episode_id(real[:8]) == [real]
+
+
+def test_insert_facts_batch_round_trip(mem: MemoryLane) -> None:
+    ep = mem.start_episode("batch")
+    facts = [
+        Fact(episode_id=ep.id, kind="paper", content=f"fact #{i}")
+        for i in range(5)
+    ]
+    ids = mem.insert_facts_batch(facts)
+    assert len(ids) == 5
+    rows = list(
+        mem.conn.execute(
+            "SELECT content FROM facts WHERE episode_id=? ORDER BY id",
+            (ep.id,),
+        )
+    )
+    assert [r["content"] for r in rows] == [f"fact #{i}" for i in range(5)]
+
+
+def test_insert_facts_batch_empty_is_noop(mem: MemoryLane) -> None:
+    assert mem.insert_facts_batch([]) == []
+
+
+def test_user_version_set_on_init(mem: MemoryLane) -> None:
+    """Schema versioning scaffolding — fresh DBs should be tagged."""
+    from recallo.memory import _SCHEMA_VERSION
+    cur = mem.conn.execute("PRAGMA user_version")
+    assert cur.fetchone()[0] == _SCHEMA_VERSION
+
+
+def test_init_rejects_future_schema_version(tmp_path: Path) -> None:
+    """A db tagged with a higher version must refuse to open."""
+    import sqlite3 as stdlib_sqlite3
+    db = tmp_path / "future.db"
+    conn = stdlib_sqlite3.connect(db, isolation_level=None)
+    conn.execute("PRAGMA user_version = 9999")
+    conn.close()
+
+    with pytest.raises(RuntimeError, match="newer than this build"):
+        MemoryLane(db_path=db)

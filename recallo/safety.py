@@ -51,22 +51,29 @@ _SENSITIVE_QUERY_KEYS: frozenset[str] = frozenset(
 )
 
 
-# Regexes for in-text secrets — best-effort scrubbing for episode summaries
-# and trace text. Covers the common provider key formats; not exhaustive.
-_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"sk-[A-Za-z0-9_\-]{20,}"),                     # OpenAI / generic
-    re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),                  # Anthropic
-    re.compile(r"AIza[0-9A-Za-z_\-]{35}"),                      # Google
-    re.compile(r"AKIA[0-9A-Z]{16}"),                            # AWS access key
-    re.compile(r"ghp_[A-Za-z0-9]{36,}"),                        # GitHub PAT
-    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),                # GitHub fine-grained
-    re.compile(r"xox[abprs]-[A-Za-z0-9\-]{10,}"),               # Slack
-    re.compile(r"Bearer\s+[A-Za-z0-9._\-]{20,}", re.IGNORECASE),
-    # Generic API_KEY=... or password=... in env-like text
-    re.compile(
-        r"\b(?:api[_-]?key|secret|password|passwd|token)\s*[:=]\s*['\"]?[A-Za-z0-9._\-]{8,}",
-        re.IGNORECASE,
-    ),
+# In-text secret patterns — best-effort scrubbing for episode summaries and
+# trace text. Compiled once into a single alternation so `scrub_secrets` makes
+# one regex pass instead of N. Covers common provider key shapes; not
+# exhaustive.
+#
+# Generic api_key/password/token pattern: bound the value to {8,64} so a benign
+# title like ``secret=MyProjectName`` doesn't eat the rest of the line, and
+# stop before whitespace/quote/path-separator boundaries.
+_SECRET_PATTERN = re.compile(
+    "|".join((
+        r"sk-ant-[A-Za-z0-9_\-]{20,}",                       # Anthropic — first, more specific
+        r"sk-[A-Za-z0-9_\-]{20,}",                            # OpenAI / generic sk-
+        r"AIza[0-9A-Za-z_\-]{35}",                            # Google
+        r"AKIA[0-9A-Z]{16}",                                  # AWS access key
+        r"ghp_[A-Za-z0-9]{36,}",                              # GitHub PAT
+        r"github_pat_[A-Za-z0-9_]{20,}",                      # GitHub fine-grained
+        r"xox[abprs]-[A-Za-z0-9\-]{10,}",                     # Slack
+        r"Bearer\s+[A-Za-z0-9._\-]{20,}",                     # OAuth bearer
+        # Generic key-like assignment, bounded length + end before whitespace/quote
+        r"\b(?:api[_-]?key|secret|password|passwd|token)"
+        r"\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{8,64}(?=[\s\"'`]|$)",
+    )),
+    re.IGNORECASE,
 )
 
 
@@ -84,7 +91,12 @@ def is_blocked(url: str, extra_blacklist: frozenset[str] | None = None) -> bool:
     host = host.lower()
     if not host:
         return False
-    blacklist = _DEFAULT_BLACKLIST | (extra_blacklist or frozenset())
+    # Avoid the unconditional set-union allocation in the hot path —
+    # extra_blacklist is None for ~all calls.
+    blacklist = (
+        _DEFAULT_BLACKLIST | extra_blacklist if extra_blacklist
+        else _DEFAULT_BLACKLIST
+    )
     parts = host.split(".")
     for i in range(len(parts)):
         if ".".join(parts[i:]) in blacklist:
@@ -126,11 +138,8 @@ def strip_sensitive_params(url: str) -> str:
 def scrub_secrets(text: str | None) -> str | None:
     """Mask common API-key shapes in a free-text string.
 
-    Pass-through for ``None`` / empty strings.
+    Pass-through for ``None`` / empty strings. One regex pass over the input.
     """
     if not text:
         return text
-    out = text
-    for pat in _SECRET_PATTERNS:
-        out = pat.sub("[redacted-secret]", out)
-    return out
+    return _SECRET_PATTERN.sub("[redacted-secret]", text)

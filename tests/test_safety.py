@@ -87,3 +87,27 @@ def test_scrub_secrets_passthrough():
     assert scrub_secrets("") == ""
     assert scrub_secrets(None) is None
     assert scrub_secrets("nothing sensitive here") == "nothing sensitive here"
+
+
+def test_scrub_secrets_does_not_overmatch_benign_text():
+    """Generic api_key/secret/password pattern must stop at word boundaries.
+
+    Used to swallow whole sentences when the value contained `.` or `-`.
+    """
+    benign = "secret=MyProject"  # 9 alnum chars, no separator after
+    out = scrub_secrets(benign)
+    # Bounded: should redact ONLY the assignment, not gobble forward.
+    assert out is not None
+    assert "[redacted-secret]" in out
+
+    sentence = "the secret=MyProject and the rest of the sentence here"
+    out = scrub_secrets(sentence)
+    assert out is not None
+    assert "the rest of the sentence here" in out
+
+    # Domain-name-shaped value should not be redacted forever
+    domain = "secret=local.example.com path"
+    out = scrub_secrets(domain)
+    assert out is not None
+    # The local.example.com is gobble-prone; current rule stops at whitespace
+    assert " path" in out

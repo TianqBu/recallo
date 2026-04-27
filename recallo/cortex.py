@@ -6,6 +6,7 @@ official per-step capture point in browser-use 0.12.6. We don't monkey-patch.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -28,10 +29,11 @@ class CortexConfig:
     text_excerpt_chars: int = 1024
 
 
-def _build_llm(cfg: CortexConfig):
+def _build_llm(cfg: CortexConfig) -> Any:
     """Construct a browser-use ChatX adapter from config + env vars.
 
     Imports are deferred so `recallo --version` doesn't pull in 200MB of SDKs.
+    Returns ``Any`` because the three Chat* classes don't share a public base.
     """
     provider = cfg.llm_provider.lower()
     if provider == "openai":
@@ -52,13 +54,15 @@ def _build_llm(cfg: CortexConfig):
 async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str:
     """Run one browser-use task, stream traces into memory, return episode id.
 
-    Each step fires `_on_step` which writes a Trace row. The episode row is
-    created up-front (status='running') and finalised at the end.
+    Each step fires `_on_step` which writes a Trace row off the event loop;
+    `_on_done` collects all extracted content and writes it as a single
+    batched insert (one embedding round-trip for the whole episode).
     """
     from browser_use import Agent  # deferred import
 
     episode = memory.start_episode(intent)
-    seq = {"n": 0}
+    seq = 0
+    pending_facts: list[Fact] = []
 
     def _excerpt(text: str | None) -> str | None:
         if text is None:
@@ -77,21 +81,21 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
         ActionModel). ActionModel is a dynamic Pydantic model whose first dumped
         key is the action name (e.g. 'click_element', 'navigate', 'done').
         """
+        nonlocal seq
         try:
             url = getattr(state, "url", None)
             title = getattr(state, "title", None)
 
             if url and is_blocked(url):
-                memory.insert_trace(
-                    Trace(
-                        episode_id=episode.id,
-                        seq=seq["n"],
-                        action_type="redacted",
-                        ts=int(time.time()),
-                        url=redact(url),
-                    )
+                trace = Trace(
+                    episode_id=episode.id,
+                    seq=seq,
+                    action_type="redacted",
+                    ts=int(time.time()),
+                    url=redact(url),
                 )
-                seq["n"] += 1
+                await asyncio.to_thread(memory.insert_trace, trace)
+                seq += 1
                 return
 
             actions = getattr(model_output, "action", None) or []
@@ -104,30 +108,26 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
             thinking = getattr(model_output, "thinking", None)
             stored_url = strip_sensitive_params(url) if url else url
 
-            memory.insert_trace(
-                Trace(
-                    episode_id=episode.id,
-                    seq=seq["n"],
-                    action_type=action_type,
-                    ts=int(time.time()),
-                    url=stored_url,
-                    selector=None,
-                    text_excerpt=scrub_secrets(_excerpt(title)),
-                    thinking=scrub_secrets(_excerpt(thinking)),
-                )
+            trace = Trace(
+                episode_id=episode.id,
+                seq=seq,
+                action_type=action_type,
+                ts=int(time.time()),
+                url=stored_url,
+                selector=None,
+                text_excerpt=scrub_secrets(_excerpt(title)),
+                thinking=scrub_secrets(_excerpt(thinking)),
             )
-            seq["n"] += 1
+            await asyncio.to_thread(memory.insert_trace, trace)
+            seq += 1
         except Exception:
             logger.exception("[recallo] failed to record trace; continuing")
-
-    fact_count = {"n": 0}
 
     async def _on_done(history: Any) -> None:
         """browser-use signature: (AgentHistoryList,). Called once at end.
 
-        Walks the AgentHistory items and turns each ActionResult that carries
-        ``extracted_content`` or ``long_term_memory`` into a Fact row, which
-        is also embedded if the MemoryLane has an Embedder configured.
+        Walks the AgentHistory items, collects ActionResult content, then
+        batches the writes + embeddings into a single transaction.
         """
         if history is None:
             return
@@ -151,18 +151,20 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
                 if len(content) > 4096:
                     content = content[:4096]
                 stored_url = strip_sensitive_params(url) if url else url
-                try:
-                    memory.insert_fact(
-                        Fact(
-                            episode_id=episode.id,
-                            kind="extract",
-                            content=content,
-                            source_url=stored_url,
-                        )
+                pending_facts.append(
+                    Fact(
+                        episode_id=episode.id,
+                        kind="extract",
+                        content=content,
+                        source_url=stored_url,
                     )
-                    fact_count["n"] += 1
-                except Exception:
-                    logger.exception("[recallo] failed to write fact; continuing")
+                )
+
+        if pending_facts:
+            try:
+                await asyncio.to_thread(memory.insert_facts_batch, pending_facts)
+            except Exception:
+                logger.exception("[recallo] failed to write facts batch")
 
     try:
         llm = _build_llm(cfg)
@@ -174,19 +176,22 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
             max_failures=cfg.max_failures,
         )
         await agent.run(max_steps=cfg.max_steps)
-        status = "ok" if seq["n"] > 0 else "partial"
+        status = "ok" if seq > 0 else "partial"
         summary = (
-            f"{seq['n']} step(s), {fact_count['n']} fact(s) extracted"
-            if seq["n"] > 0
+            f"{seq} step(s), {len(pending_facts)} fact(s) extracted"
+            if seq > 0
             else "agent produced no successful steps"
         )
-        memory.finish_episode(episode.id, status=status, summary=summary)
+        await asyncio.to_thread(
+            memory.finish_episode, episode.id, status, summary
+        )
     except Exception as e:
         logger.exception("[recallo] episode failed")
-        memory.finish_episode(
+        await asyncio.to_thread(
+            memory.finish_episode,
             episode.id,
-            status="failed",
-            summary=scrub_secrets(str(e)[:512]),
+            "failed",
+            scrub_secrets(str(e)[:512]),
         )
         raise
     return episode.id

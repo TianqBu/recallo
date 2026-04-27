@@ -8,6 +8,7 @@ available when an :class:`~recallo.embed.Embedder` is wired in.
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -28,16 +29,22 @@ import sqlite_vec
 from .embed import EMBEDDING_DIM, Embedder
 
 
-_VEC_SCHEMA = (
-    f"CREATE VIRTUAL TABLE IF NOT EXISTS fact_vec USING vec0("
-    f"embedding float[{EMBEDDING_DIM}]"
-    f");"
-    # ON DELETE CASCADE doesn't propagate into vec0 virtual tables, so wire it
-    # up explicitly: when a fact row goes away, drop its embedding too.
-    "CREATE TRIGGER IF NOT EXISTS fact_vec_ad AFTER DELETE ON facts BEGIN"
-    "  DELETE FROM fact_vec WHERE rowid = old.id;"
-    "END;"
-)
+_VEC_SCHEMA = f"""\
+CREATE VIRTUAL TABLE IF NOT EXISTS fact_vec USING vec0(
+    embedding float[{EMBEDDING_DIM}]
+);
+
+-- ON DELETE CASCADE doesn't propagate into vec0 virtual tables, so wire it up
+-- explicitly: when a fact row goes away, drop its embedding too.
+CREATE TRIGGER IF NOT EXISTS fact_vec_ad AFTER DELETE ON facts
+BEGIN
+    DELETE FROM fact_vec WHERE rowid = old.id;
+END;
+"""
+
+# Bumped when schema changes. ``MemoryLane.__init__`` reads ``PRAGMA
+# user_version`` and runs migrations from there to ``_SCHEMA_VERSION``.
+_SCHEMA_VERSION = 1
 
 
 def default_db_path() -> Path:
@@ -91,18 +98,22 @@ class MemoryLane:
         db_path: Path | None = None,
         embedder: Embedder | None = None,
     ) -> None:
-        import os
-
         self.db_path = db_path or default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         existed = self.db_path.exists()
-        self.conn = sqlite3.connect(self.db_path, isolation_level=None)
+        # check_same_thread=False so the connection can be reached from
+        # asyncio executor threads (cortex offloads sqlite via to_thread).
+        # Single-writer asyncio means no real concurrency.
+        self.conn = sqlite3.connect(
+            self.db_path, isolation_level=None, check_same_thread=False
+        )
         self.conn.row_factory = sqlite3.Row
         try:
             self._vec_available = self._try_enable_vec()
             self.conn.executescript(_load_schema())
             if self._vec_available:
                 self.conn.executescript(_VEC_SCHEMA)
+            self._migrate_if_needed()
         except Exception:
             self.conn.close()
             raise
@@ -113,6 +124,27 @@ class MemoryLane:
             except OSError:
                 pass
         self.embedder = embedder
+
+    def _migrate_if_needed(self) -> None:
+        """Run forward migrations from ``user_version`` to ``_SCHEMA_VERSION``.
+
+        Version 0 (un-tagged) is the initial schema baked into ``schema.sql`` +
+        ``_VEC_SCHEMA``; ``CREATE ... IF NOT EXISTS`` makes that step
+        idempotent. Future versions add a branch here. We never run downward
+        migrations.
+        """
+        cur = self.conn.execute("PRAGMA user_version")
+        current = cur.fetchone()[0]
+        if current > _SCHEMA_VERSION:
+            raise RuntimeError(
+                f"database at {self.db_path} reports schema version "
+                f"{current}, newer than this build's {_SCHEMA_VERSION}"
+            )
+        if current == _SCHEMA_VERSION:
+            return
+        # current < _SCHEMA_VERSION → step forward.
+        # (No mid-version migrations exist yet; this is the scaffolding.)
+        self.conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
     def _try_enable_vec(self) -> bool:
         try:
@@ -194,6 +226,52 @@ class MemoryLane:
                 (fact_id, sqlite_vec.serialize_float32(vec)),
             )
         return fact_id
+
+    def insert_facts_batch(self, facts: list[Fact]) -> list[int]:
+        """Insert N facts with a single batch embedding call.
+
+        For an episode that produces dozens of facts, ``insert_fact`` would
+        fire dozens of serial OpenAI round-trips. This collapses them to one.
+        Embeddings are computed first (so a network failure raises before any
+        DB write); then facts + vectors are inserted inside one BEGIN/COMMIT.
+        """
+        if not facts:
+            return []
+        do_embed = bool(self.embedder and self._vec_available)
+        vectors: list[list[float]] = []
+        if do_embed:
+            assert self.embedder is not None  # narrow for type checker
+            vectors = self.embedder.embed_batch([f.content for f in facts])
+            for v in vectors:
+                if len(v) != EMBEDDING_DIM:
+                    raise ValueError(
+                        f"embedder produced dim={len(v)}, expected {EMBEDDING_DIM}"
+                    )
+
+        ids: list[int] = []
+        self.conn.execute("BEGIN")
+        try:
+            for i, fact in enumerate(facts):
+                cur = self.conn.execute(
+                    "INSERT INTO facts(episode_id, kind, content, source_url, ts) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (fact.episode_id, fact.kind, fact.content,
+                     fact.source_url, fact.ts),
+                )
+                fact_id = cur.lastrowid
+                if fact_id is None:
+                    raise RuntimeError("sqlite returned no lastrowid")
+                ids.append(fact_id)
+                if do_embed:
+                    self.conn.execute(
+                        "INSERT INTO fact_vec(rowid, embedding) VALUES (?, ?)",
+                        (fact_id, sqlite_vec.serialize_float32(vectors[i])),
+                    )
+            self.conn.execute("COMMIT")
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        return ids
 
     @staticmethod
     def _fts5_escape(query: str) -> str:

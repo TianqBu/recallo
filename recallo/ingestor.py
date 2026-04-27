@@ -50,7 +50,10 @@ def parse(target: str, *, mineru_url: str = DEFAULT_MINERU_URL,
             logger.warning("[recallo] mineru local-pdf failed: %s", e)
 
     try:
-        return _via_trafilatura(pdf_url, timeout_s) or _via_trafilatura(abs_url, timeout_s)
+        if (doc := _via_trafilatura(pdf_url, timeout_s)) is not None:
+            return doc
+        if (doc := _via_trafilatura(abs_url, timeout_s)) is not None:
+            return doc
     except Exception as e:
         logger.warning("[recallo] trafilatura failed: %s", e)
 

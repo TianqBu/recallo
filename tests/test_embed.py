@@ -30,7 +30,10 @@ def test_stub_embedder_custom_dim():
     assert len(e.embed("x")) == 8
 
 
-def test_openai_embedder_dim_for_known_models():
+def test_openai_embedder_dim_for_known_models(monkeypatch):
+    # Construction now eagerly validates OPENAI_API_KEY (fail-fast); a dummy
+    # value is enough since we never actually call .embed().
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     assert OpenAIEmbedder("text-embedding-3-small").dim == 1536
     assert OpenAIEmbedder("text-embedding-3-large").dim == 3072
 

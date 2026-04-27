@@ -17,23 +17,16 @@ logging.basicConfig(
 )
 
 
-def _apply_windows_event_loop_policy() -> None:
-    """Leave Windows on its default ProactorEventLoop.
-
-    Earlier guidance suggested forcing WindowsSelectorEventLoopPolicy because
-    of historical aiohttp issues, but Selector loops do *not* support
-    `asyncio.create_subprocess_exec` on Windows, which browser-use needs to
-    launch Chromium. Modern aiohttp/cdp-use work fine on Proactor, so the
-    correct call is to keep the default. Verified by an actual `recallo
-    explore` failure with `NotImplementedError` from `_make_subprocess_transport`.
-    """
-    return
+# Note: keep Windows on its default ProactorEventLoop. Selector loops can't
+# `asyncio.create_subprocess_exec`, which browser-use needs to launch Chromium.
+# (Verified by an actual `recallo explore` failure with NotImplementedError
+# from `_make_subprocess_transport`.) Don't add a policy override here.
 
 
 @click.group(help="Recallo — local-first browser agent with long-term memory.")
 @click.version_option(__version__, prog_name="recallo")
 def main() -> None:
-    _apply_windows_event_loop_policy()
+    pass
 
 
 @main.command(help="Initialise the local memory database (~/.recallo/memory.db).")
@@ -81,6 +74,14 @@ def recall(query: tuple[str, ...], limit: int, mode: str) -> None:
     embedder = get_default_embedder()
     mem = MemoryLane(embedder=embedder)
     try:
+        if mode == "semantic" and not (embedder and mem.vec_available):
+            click.echo(
+                "[recallo] --mode semantic requires OPENAI_API_KEY and "
+                "sqlite-vec; neither/both are available.",
+                err=True,
+            )
+            raise click.exceptions.Exit(1)
+
         rows: list = []
         used = "keyword"
         if mode in ("auto", "semantic") and embedder and mem.vec_available:
@@ -105,7 +106,7 @@ def recall(query: tuple[str, ...], limit: int, mode: str) -> None:
 
 
 def _format_ts(ts: int | None) -> str:
-    if not ts:
+    if ts is None:
         return "-"
     import datetime as _dt
     # UTC keeps replays consistent across machines / time zones.
