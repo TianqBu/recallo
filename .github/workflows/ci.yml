@@ -40,7 +40,7 @@ jobs:
         # be present even though no test calls them.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pytest-asyncio click sqlite-vec httpx trafilatura
+          python -m pip install pytest pytest-asyncio click sqlite-vec httpx trafilatura openai
           python -m pip install -e . --no-deps
 
       - name: Install pysqlite3-binary (Linux only)
