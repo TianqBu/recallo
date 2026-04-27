@@ -1,0 +1,102 @@
+name: Publish to PyPI
+
+# Two ways to trigger a release:
+#   1. Push a tag like v0.1.0 — publishes to PyPI.
+#   2. Manual `workflow_dispatch` — publishes to TestPyPI for dry runs.
+#
+# Setup (one-time):
+#   - PyPI: create a project-scoped API token at https://pypi.org/manage/account/token/
+#     Add it as repo secret `PYPI_API_TOKEN`.
+#   - (optional) TestPyPI: token goes in `TEST_PYPI_API_TOKEN`.
+#
+# The version published is whatever is in pyproject.toml's `[project] version`.
+# Bump it BEFORE tagging so the tag and the wheel agree.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target index (testpypi or pypi)"
+        required: true
+        default: testpypi
+        type: choice
+        options: [testpypi, pypi]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sdist + wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+
+      - name: Build distribution
+        run: python -m build
+
+      - name: Validate metadata
+        run: python -m twine check dist/*
+
+      - name: Verify wheel installs cleanly
+        # Catch missing package_data / pyproject typos before we ship.
+        run: |
+          python -m venv /tmp/verify
+          /tmp/verify/bin/python -m pip install --quiet dist/*.whl
+          /tmp/verify/bin/recallo --version
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Upload to ${{ github.event_name == 'push' && 'PyPI' || inputs.target }}
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      # The user can configure required reviewers / secrets per environment
+      # in repo settings. Both names exist as soon as a release is made.
+      name: ${{ github.event_name == 'push' && 'pypi' || inputs.target }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install twine
+        run: python -m pip install twine
+
+      - name: Upload to PyPI
+        if: github.event_name == 'push' || inputs.target == 'pypi'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: python -m twine upload --non-interactive dist/*
+
+      - name: Upload to TestPyPI
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          TWINE_REPOSITORY_URL: https://test.pypi.org/legacy/
+        run: python -m twine upload --non-interactive dist/*

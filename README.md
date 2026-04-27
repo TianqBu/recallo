@@ -12,8 +12,8 @@ stores everything in a local SQLite database under `~/.recallo/`. Next time
 you ask "what did that Self-RAG paper say about retrieval?", it answers from
 your past sessions — no cloud round-trip, no re-prompting.
 
-> **Status:** pre-alpha. M1 skeleton only. Not all commands listed below are
-> wired up yet.
+> **Status:** pre-alpha — the wheel installs and the four commands below
+> work, but expect rough edges and breaking changes before v0.2.
 
 ## Why local-first?
 
@@ -24,7 +24,7 @@ a single SQLite file you can inspect, back up, share, or delete.
 ## Quick start
 
 ```bash
-pip install -e .                       # from a clone, until PyPI is ready
+pip install recallo                    # or `pip install -e .` from a clone
 recallo init                           # creates ~/.recallo/memory.db
 recallo explore "Summarize arxiv:2310.11511"
 # ...later...
@@ -116,9 +116,8 @@ OpenAI / Anthropic / your local Ollama.) Local protections:
 - M1 — installable skeleton, `init`, `explore` runs browser-use ✅
 - M2 — sqlite-vec semantic `recall` + FTS5 fallback, fact extraction from
   agent history ✅
-- M3 — packaging for `pip install recallo` from PyPI, demo GIF, docs
-- M4 — Memory Replay timeline ✅ ⬅ current, MinerU three-tier fallback,
-  broader tests
+- M3 — `pip install recallo` from PyPI, demo, docs ⬅ current
+- M4 — Memory Replay timeline ✅, MinerU three-tier fallback, broader tests
 
 ## Standing on the shoulders of giants
 
