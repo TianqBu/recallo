@@ -11,6 +11,13 @@ from recallo.memory import Fact, MemoryLane
 @pytest.fixture
 def mem(tmp_path: Path) -> MemoryLane:
     m = MemoryLane(db_path=tmp_path / "vec.db", embedder=StubEmbedder())
+    if not m.vec_available:
+        m.close()
+        pytest.skip(
+            "sqlite-vec extension is not loadable in this Python's sqlite3. "
+            "Install `pysqlite3-binary` or use a Python compiled with "
+            "--enable-loadable-sqlite-extensions to run the vector tests."
+        )
     yield m
     m.close()
 
@@ -72,6 +79,9 @@ def test_fts_keyword_recall_still_works_alongside_vec(mem: MemoryLane) -> None:
 def test_dimension_mismatch_raises(tmp_path: Path) -> None:
     bad = StubEmbedder(dim=64)
     m = MemoryLane(db_path=tmp_path / "bad.db", embedder=bad)
+    if not m.vec_available:
+        m.close()
+        pytest.skip("sqlite-vec extension unavailable; dim check is vec-only")
     try:
         ep = m.start_episode("dim")
         with pytest.raises(ValueError, match="dim="):

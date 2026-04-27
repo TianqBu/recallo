@@ -43,12 +43,13 @@ jobs:
           python -m pip install pytest pytest-asyncio click sqlite-vec httpx trafilatura
           python -m pip install -e . --no-deps
 
-      - name: Install pysqlite3-binary (Linux/macOS)
-        # actions/setup-python's stdlib sqlite3 on macOS (and some Linux builds)
-        # is compiled without loadable-extension support. pysqlite3-binary
-        # ships its own SQLite with extensions enabled. Windows stdlib sqlite3
-        # already supports extensions, and pysqlite3-binary has no Windows wheel.
-        if: runner.os != 'Windows'
+      - name: Install pysqlite3-binary (Linux only)
+        # actions/setup-python's stdlib sqlite3 on macOS lacks
+        # loadable-extension support, but pysqlite3-binary has no
+        # macOS-arm64 wheel (macos-latest is M-series). On Linux we install
+        # it as belt-and-braces; on Windows the stdlib already supports
+        # extensions; on macOS the vec tests gracefully skip themselves.
+        if: runner.os == 'Linux'
         run: python -m pip install pysqlite3-binary
 
       - name: Run pytest
