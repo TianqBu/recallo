@@ -21,7 +21,7 @@
 | `trafilatura` | >=1.6 | 网页/PDF 文本降级解析 | 80% 论文文本提取率 |
 | `httpx` | >=0.27 | 调 mineru-api(用户后台启动) | |
 | `click` | >=8.1 | CLI | browser-use 已带 |
-| `sqlite-vec` | optional | 向量搜索(M2) | M1 用 FTS5 占位 |
+| `sqlite-vec` | required | 向量召回 | M2 已接入(默认 1536 维) |
 | `mineru` | optional extra | 高质量 PDF 解析 | **不 import,用户独立启动 `mineru-api`** |
 
 **已砍**:
@@ -63,10 +63,10 @@ recallo (CLI)
 
 | M | 交付 | 主要工作 |
 |---|---|---|
-| **M1** | `pip install -e .` 跑通 | pyproject、CLI 骨架、SQLite init、browser-use spike |
-| **M2** | 能记能召回 | per-step Trace 捕获、embedding、FTS5/vec 召回 |
-| **M3** | 给陌生人用 | README + GIF、`pip install recallo`、Ollama fallback |
-| **M4** | 打磨可选 | Memory Replay CLI、MinerU 三层 fallback、测试 60% |
+| **M1** | ✅ `pip install -e .` 跑通 | pyproject、CLI 骨架、SQLite init、browser-use spike |
+| **M2** | ✅ 能记能召回 | sqlite-vec、OpenAIEmbedder、register_done_callback 提取事实、语义+FTS5 双轨 |
+| **M3** | 给陌生人用 | README + GIF、`pip install recallo`、Ollama fallback、demo |
+| **M4** | 打磨可选 | Memory Replay CLI、MinerU 三层 fallback、测试 80% |
 
 总计 **1-2 周一个开发者**。
 

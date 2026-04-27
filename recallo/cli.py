@@ -9,6 +9,7 @@ import sys
 import click
 
 from . import __version__
+from .embed import get_default_embedder
 from .memory import MemoryLane, default_db_path
 
 logging.basicConfig(
@@ -38,8 +39,12 @@ def main() -> None:
 
 @main.command(help="Initialise the local memory database (~/.recallo/memory.db).")
 def init() -> None:
-    mem = MemoryLane()
+    mem = MemoryLane(embedder=get_default_embedder())
     click.echo(f"[recallo] memory ready at {mem.db_path}")
+    click.echo(
+        f"[recallo] sqlite-vec: {'on' if mem.vec_available else 'off'}, "
+        f"embedder: {'on' if mem.embedder else 'off'}"
+    )
     mem.close()
 
 
@@ -55,7 +60,7 @@ def explore(task: tuple[str, ...], provider: str, model: str | None,
     from .cortex import CortexConfig, run_episode  # deferred — avoids 200MB load
 
     intent = " ".join(task)
-    mem = MemoryLane()
+    mem = MemoryLane(embedder=get_default_embedder())
     try:
         cfg = CortexConfig(llm_provider=provider, llm_model=model, max_steps=max_steps)
         episode_id = asyncio.run(run_episode(intent, mem, cfg))
@@ -64,19 +69,37 @@ def explore(task: tuple[str, ...], provider: str, model: str | None,
         mem.close()
 
 
-@main.command(help="Search past episodes for relevant facts (M1: keyword/FTS5).")
+@main.command(help="Search past episodes. Uses sqlite-vec semantic search when "
+                   "an embedder is available, FTS5 keyword search otherwise.")
 @click.argument("query", nargs=-1, required=True)
 @click.option("--limit", default=10, show_default=True, type=int)
-def recall(query: tuple[str, ...], limit: int) -> None:
+@click.option("--mode", default="auto", show_default=True,
+              type=click.Choice(["auto", "semantic", "keyword"]),
+              help="auto picks semantic when an embedder is configured.")
+def recall(query: tuple[str, ...], limit: int, mode: str) -> None:
     q = " ".join(query)
-    mem = MemoryLane()
+    embedder = get_default_embedder()
+    mem = MemoryLane(embedder=embedder)
     try:
-        rows = mem.search_facts(q, limit=limit)
+        rows: list = []
+        used = "keyword"
+        if mode in ("auto", "semantic") and embedder and mem.vec_available:
+            rows = mem.search_facts_semantic(q, limit=limit)
+            used = "semantic"
+        if not rows and mode != "semantic":
+            rows = mem.search_facts(q, limit=limit)
+            used = "keyword"
         if not rows:
             click.echo("[recallo] no matches")
             return
+        click.echo(f"[recallo] mode={used}")
         for row in rows:
-            click.echo(f"- [{row['kind']}] {row['content']}  (episode {row['episode_id']})")
+            keys = row.keys()
+            distance = f"  (d={row['distance']:.3f})" if "distance" in keys else ""
+            click.echo(
+                f"- [{row['kind']}] {row['content']}  "
+                f"(episode {row['episode_id']}){distance}"
+            )
     finally:
         mem.close()
 

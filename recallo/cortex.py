@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .memory import MemoryLane, Trace
+from .memory import Fact, MemoryLane, Trace
 from .safety import is_blocked, redact
 
 logger = logging.getLogger("recallo.cortex")
@@ -119,16 +119,63 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
         except Exception:
             logger.exception("[recallo] failed to record trace; continuing")
 
+    fact_count = {"n": 0}
+
+    async def _on_done(history: Any) -> None:
+        """browser-use signature: (AgentHistoryList,). Called once at end.
+
+        Walks the AgentHistory items and turns each ActionResult that carries
+        ``extracted_content`` or ``long_term_memory`` into a Fact row, which
+        is also embedded if the MemoryLane has an Embedder configured.
+        """
+        if history is None:
+            return
+        items = getattr(history, "history", None) or []
+        for h in items:
+            url = getattr(getattr(h, "state", None), "url", None)
+            for r in getattr(h, "result", None) or []:
+                content = (
+                    getattr(r, "long_term_memory", None)
+                    or getattr(r, "extracted_content", None)
+                    or ""
+                )
+                content = (content or "").strip()
+                if not content:
+                    continue
+                if url and is_blocked(url):
+                    continue
+                if len(content) > 4096:
+                    content = content[:4096]
+                try:
+                    memory.insert_fact(
+                        Fact(
+                            episode_id=episode.id,
+                            kind="extract",
+                            content=content,
+                            source_url=url,
+                        )
+                    )
+                    fact_count["n"] += 1
+                except Exception:
+                    logger.exception("[recallo] failed to write fact; continuing")
+
     try:
         llm = _build_llm(cfg)
         agent = Agent(
             task=intent,
             llm=llm,
             register_new_step_callback=_on_step,
+            register_done_callback=_on_done,
             max_failures=cfg.max_failures,
         )
         await agent.run(max_steps=cfg.max_steps)
-        memory.finish_episode(episode.id, status="ok")
+        status = "ok" if seq["n"] > 0 else "partial"
+        summary = (
+            f"{seq['n']} step(s), {fact_count['n']} fact(s) extracted"
+            if seq["n"] > 0
+            else "agent produced no successful steps"
+        )
+        memory.finish_episode(episode.id, status=status, summary=summary)
     except Exception as e:
         logger.exception("[recallo] episode failed")
         memory.finish_episode(episode.id, status="failed", summary=str(e)[:512])

@@ -25,6 +25,8 @@ recallo init                           # creates ~/.recallo/memory.db
 recallo explore "Summarize arxiv:2310.11511"
 # ...later...
 recallo recall "what did that Self-RAG paper say about retrieval?"
+# Force keyword mode (FTS5) when you don't want to spend on embeddings:
+recallo recall "self rag" --mode keyword
 ```
 
 ### Provider keys
@@ -64,13 +66,21 @@ the arxiv abstract page.
 
 ## What's stored
 
-Three tables in a single SQLite file:
+Three tables plus two indexes, all in a single SQLite file:
 
-- `episodes` — one row per task, with intent and summary
+- `episodes` — one row per task, with intent, status, summary
 - `traces` — per-step browser action records (action, URL, selector, text)
-- `facts` — extracted structured facts, ready for embedding-based recall
+- `facts` — content extracted from the page, written by the done-callback
+- `facts_fts` — FTS5 keyword index over `facts` (M1 fallback)
+- `fact_vec` — sqlite-vec virtual table, 1536-d float vectors over `facts` (M2)
 
 See `recallo/schema.sql` for the full schema.
+
+### Recall modes
+
+When `OPENAI_API_KEY` is set, `recallo recall` embeds your query and runs
+kNN over `fact_vec`. Without a key, it transparently falls back to FTS5 on
+`facts_fts`. Pass `--mode keyword` or `--mode semantic` to pin the mode.
 
 ## Privacy
 
@@ -79,10 +89,11 @@ webmail, and health sites. Edit `recallo/safety.py` to extend it.
 
 ## Roadmap
 
-- M1 — installable skeleton, `init`, `explore` runs browser-use ⬅ current
-- M2 — Web Trace capture per step, embedding, semantic `recall`
-- M3 — packaging for `pip install recallo`, demo GIF, docs
-- M4 — Memory Replay timeline, MinerU three-tier fallback, tests
+- M1 — installable skeleton, `init`, `explore` runs browser-use ✅
+- M2 — sqlite-vec semantic `recall` + FTS5 fallback, fact extraction from
+  agent history ✅ ⬅ current
+- M3 — packaging for `pip install recallo` from PyPI, demo GIF, docs
+- M4 — Memory Replay timeline, MinerU three-tier fallback, broader tests
 
 ## Standing on the shoulders of giants
 

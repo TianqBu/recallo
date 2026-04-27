@@ -49,8 +49,10 @@ async def test_run_episode_records_trace_for_each_step(mem: MemoryLane, monkeypa
 
     class _FakeAgent:
         def __init__(self, *, task: str, llm: Any, register_new_step_callback: Any,
+                     register_done_callback: Any = None,
                      max_failures: int = 5, **_kw) -> None:
             captured_callback["fn"] = register_new_step_callback
+            captured_callback["done"] = register_done_callback
 
         async def run(self, max_steps: int = 50) -> None:
             cb = captured_callback["fn"]
@@ -105,7 +107,8 @@ async def test_run_episode_redacts_blocked_urls(mem: MemoryLane, monkeypatch) ->
     captured_callback = {}
 
     class _FakeAgent:
-        def __init__(self, *, register_new_step_callback: Any, **_kw) -> None:
+        def __init__(self, *, register_new_step_callback: Any,
+                     register_done_callback: Any = None, **_kw) -> None:
             captured_callback["fn"] = register_new_step_callback
 
         async def run(self, max_steps: int = 50) -> None:

@@ -1,7 +1,9 @@
 """SQLite-backed Memory Lane.
 
-M1 stores episodes / traces / facts and exposes simple insert + FTS5 keyword
-search. M2 will add an sqlite-vec virtual table for semantic recall.
+Three tables — ``episodes``, ``traces``, ``facts`` — plus an FTS5 mirror over
+``facts`` for keyword recall. M2 also creates a ``fact_vec`` virtual table
+(``sqlite-vec``) that mirrors ``facts`` by ``rowid``; semantic search becomes
+available when an :class:`~recallo.embed.Embedder` is wired in.
 """
 
 from __future__ import annotations
@@ -12,6 +14,17 @@ import uuid
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
+
+import sqlite_vec
+
+from .embed import EMBEDDING_DIM, Embedder
+
+
+_VEC_SCHEMA = (
+    f"CREATE VIRTUAL TABLE IF NOT EXISTS fact_vec USING vec0("
+    f"embedding float[{EMBEDDING_DIM}]"
+    f");"
+)
 
 
 def default_db_path() -> Path:
@@ -54,14 +67,47 @@ class Fact:
 
 
 class MemoryLane:
-    """Thin SQLite wrapper. Single connection per process, WAL mode."""
+    """Single SQLite connection with WAL, FTS5, and (optional) sqlite-vec.
 
-    def __init__(self, db_path: Path | None = None) -> None:
+    Pass an ``Embedder`` to enable semantic recall. Without one the keyword
+    search via :meth:`search_facts` keeps working.
+    """
+
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        embedder: Embedder | None = None,
+    ) -> None:
         self.db_path = db_path or default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
+
+        self._vec_available = self._try_enable_vec()
         self.conn.executescript(_load_schema())
+        if self._vec_available:
+            self.conn.executescript(_VEC_SCHEMA)
+        self.embedder = embedder
+
+    def _try_enable_vec(self) -> bool:
+        try:
+            self.conn.enable_load_extension(True)
+        except (AttributeError, sqlite3.OperationalError):
+            return False
+        try:
+            sqlite_vec.load(self.conn)
+        except Exception:
+            return False
+        finally:
+            try:
+                self.conn.enable_load_extension(False)
+            except Exception:
+                pass
+        return True
+
+    @property
+    def vec_available(self) -> bool:
+        return self._vec_available
 
     def close(self) -> None:
         self.conn.close()
@@ -105,16 +151,25 @@ class MemoryLane:
 
     def insert_fact(self, fact: Fact) -> int:
         cur = self.conn.execute(
-            "INSERT INTO facts(episode_id, kind, content, source_url, ts) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO facts(episode_id, kind, content, source_url, ts) "
+            "VALUES (?, ?, ?, ?, ?)",
             (fact.episode_id, fact.kind, fact.content, fact.source_url, fact.ts),
         )
-        return cur.lastrowid
+        fact_id = cur.lastrowid
+        if self.embedder and self._vec_available:
+            vec = self.embedder.embed(fact.content)
+            if len(vec) != EMBEDDING_DIM:
+                raise ValueError(
+                    f"embedder produced dim={len(vec)}, expected {EMBEDDING_DIM}"
+                )
+            self.conn.execute(
+                "INSERT INTO fact_vec(rowid, embedding) VALUES (?, ?)",
+                (fact_id, sqlite_vec.serialize_float32(vec)),
+            )
+        return fact_id
 
     def search_facts(self, query: str, limit: int = 10) -> list[sqlite3.Row]:
-        """Keyword search across facts via FTS5 (M1).
-
-        M2 will add a parallel `search_facts_semantic` using sqlite-vec.
-        """
+        """FTS5 keyword search across ``facts`` (case-insensitive, ranked)."""
         return list(
             self.conn.execute(
                 """SELECT f.id, f.episode_id, f.kind, f.content, f.source_url, f.ts
@@ -124,6 +179,24 @@ class MemoryLane:
                    ORDER BY rank
                    LIMIT ?""",
                 (query, limit),
+            )
+        )
+
+    def search_facts_semantic(self, query: str, limit: int = 10) -> list[sqlite3.Row]:
+        """Vector kNN over ``fact_vec``. Returns ``[]`` if no embedder/extension."""
+        if not (self.embedder and self._vec_available):
+            return []
+        qvec = self.embedder.embed(query)
+        return list(
+            self.conn.execute(
+                """SELECT f.id, f.episode_id, f.kind, f.content, f.source_url, f.ts,
+                          fact_vec.distance AS distance
+                   FROM fact_vec
+                   JOIN facts f ON f.id = fact_vec.rowid
+                   WHERE fact_vec.embedding MATCH ?
+                     AND k = ?
+                   ORDER BY distance""",
+                (sqlite_vec.serialize_float32(qvec), limit),
             )
         )
 
