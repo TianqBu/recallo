@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .memory import Fact, MemoryLane, Trace
-from .safety import is_blocked, redact
+from .safety import is_blocked, redact, scrub_secrets, strip_sensitive_params
 
 logger = logging.getLogger("recallo.cortex")
 
@@ -102,6 +102,7 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
                 action_type = next(iter(dumped.keys()), "step")
 
             thinking = getattr(model_output, "thinking", None)
+            stored_url = strip_sensitive_params(url) if url else url
 
             memory.insert_trace(
                 Trace(
@@ -109,10 +110,10 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
                     seq=seq["n"],
                     action_type=action_type,
                     ts=int(time.time()),
-                    url=url,
+                    url=stored_url,
                     selector=None,
-                    text_excerpt=_excerpt(title),
-                    thinking=_excerpt(thinking),
+                    text_excerpt=scrub_secrets(_excerpt(title)),
+                    thinking=scrub_secrets(_excerpt(thinking)),
                 )
             )
             seq["n"] += 1
@@ -144,15 +145,19 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
                     continue
                 if url and is_blocked(url):
                     continue
+                content = scrub_secrets(content) or ""
+                if not content:
+                    continue
                 if len(content) > 4096:
                     content = content[:4096]
+                stored_url = strip_sensitive_params(url) if url else url
                 try:
                     memory.insert_fact(
                         Fact(
                             episode_id=episode.id,
                             kind="extract",
                             content=content,
-                            source_url=url,
+                            source_url=stored_url,
                         )
                     )
                     fact_count["n"] += 1
@@ -178,6 +183,10 @@ async def run_episode(intent: str, memory: MemoryLane, cfg: CortexConfig) -> str
         memory.finish_episode(episode.id, status=status, summary=summary)
     except Exception as e:
         logger.exception("[recallo] episode failed")
-        memory.finish_episode(episode.id, status="failed", summary=str(e)[:512])
+        memory.finish_episode(
+            episode.id,
+            status="failed",
+            summary=scrub_secrets(str(e)[:512]),
+        )
         raise
     return episode.id

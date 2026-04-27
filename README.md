@@ -91,8 +91,25 @@ kNN over `fact_vec`. Without a key, it transparently falls back to FTS5 on
 
 ## Privacy
 
-Recallo never uploads anything. A built-in domain blacklist skips banking,
-webmail, and health sites. Edit `recallo/safety.py` to extend it.
+Recallo never uploads anything to a Recallo-controlled server. (LLM and
+embedding requests still go to whichever provider you've configured —
+OpenAI / Anthropic / your local Ollama.) Local protections:
+
+- **Domain blacklist** — banking, webmail, health portals, private
+  messaging (WhatsApp/Telegram/Messenger/Discord), social DMs
+  (Twitter/X/Instagram), collab tools (Notion/Slack), and password
+  managers are dropped before they hit the trace table. Extend by editing
+  `recallo/safety.py`.
+- **URL scrubbing** — OAuth-style query params (`access_token`,
+  `code`, `session`, `state`, `password`, ...) and URL fragments are
+  stripped before traces are stored.
+- **Secret masking** — common API-key shapes (OpenAI `sk-`, Anthropic
+  `sk-ant-`, AWS, Google, GitHub PAT, Slack tokens, generic
+  `Bearer …`) are replaced with `[redacted-secret]` in episode
+  summaries, page titles, and agent thinking before persisting.
+- **Tight file mode** — `~/.recallo/memory.db` is created with
+  permissions `0o600` on POSIX (no-op on Windows; use NTFS ACLs if
+  you need stricter local isolation).
 
 ## Roadmap
 

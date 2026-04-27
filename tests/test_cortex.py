@@ -136,3 +136,112 @@ async def test_run_episode_redacts_blocked_urls(mem: MemoryLane, monkeypatch) ->
     assert row["action_type"] == "redacted"
     assert row["url"].startswith("[redacted:")
     assert row["text_excerpt"] is None
+
+
+@pytest.mark.asyncio
+async def test_run_episode_strips_oauth_params_and_secrets(mem: MemoryLane, monkeypatch) -> None:
+    """OAuth tokens in URLs and `sk-...` keys in titles must not hit storage."""
+
+    secret_key = "sk-abcdefghijklmnopqrstuvwxyz0123"
+    captured = {}
+
+    class _FakeAgent:
+        def __init__(self, *, register_new_step_callback: Any,
+                     register_done_callback: Any = None, **_kw) -> None:
+            captured["fn"] = register_new_step_callback
+
+        async def run(self, max_steps: int = 50) -> None:
+            await captured["fn"](
+                _DummyState(
+                    url="https://example.com/cb?code=abc&access_token=xyz&kept=1",
+                    title=f"Welcome (key={secret_key})",
+                ),
+                _DummyOutput(action=[_DummyAction({"navigate": {"url": "x"}})]),
+                0,
+            )
+
+    import recallo.cortex as cortex_mod
+    monkeypatch.setattr(cortex_mod, "_build_llm", lambda _cfg: object())
+
+    import sys
+    import types
+    fake_module = types.ModuleType("browser_use")
+    fake_module.Agent = _FakeAgent  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "browser_use", fake_module)
+
+    ep_id = await run_episode("oauth flow", mem, CortexConfig())
+    row = mem.conn.execute(
+        "SELECT url, text_excerpt FROM traces WHERE episode_id=?",
+        (ep_id,),
+    ).fetchone()
+    assert "code=" not in row["url"]
+    assert "access_token" not in row["url"]
+    assert "kept=1" in row["url"]
+    assert secret_key not in row["text_excerpt"]
+    assert "[redacted-secret]" in row["text_excerpt"]
+
+
+@pytest.mark.asyncio
+async def test_done_callback_writes_facts(mem: MemoryLane, monkeypatch) -> None:
+    """register_done_callback should turn extracted_content into Fact rows."""
+
+    class _Result:
+        def __init__(self, content: str | None = None, ltm: str | None = None) -> None:
+            self.extracted_content = content
+            self.long_term_memory = ltm
+
+    @dataclass
+    class _State:
+        url: str
+
+    class _Hist:
+        def __init__(self, state: Any, results: list[_Result]) -> None:
+            self.state = state
+            self.result = results
+
+    class _History:
+        def __init__(self, items: list[_Hist]) -> None:
+            self.history = items
+
+    captured: dict[str, Any] = {}
+
+    class _FakeAgent:
+        def __init__(self, *, register_new_step_callback: Any,
+                     register_done_callback: Any = None, **_kw) -> None:
+            captured["done"] = register_done_callback
+
+        async def run(self, max_steps: int = 50) -> None:
+            history = _History([
+                _Hist(
+                    _State(url="https://arxiv.org/abs/2310.11511"),
+                    [_Result(content="Self-RAG uses self-reflection")],
+                ),
+                # blocked URL — must be skipped
+                _Hist(
+                    _State(url="https://mail.google.com/u/0/"),
+                    [_Result(content="private inbox content")],
+                ),
+                # empty content — must be skipped
+                _Hist(_State(url="https://arxiv.org/x"), [_Result(content="   ")]),
+            ])
+            await captured["done"](history)
+
+    import recallo.cortex as cortex_mod
+    monkeypatch.setattr(cortex_mod, "_build_llm", lambda _cfg: object())
+
+    import sys
+    import types
+    fake_module = types.ModuleType("browser_use")
+    fake_module.Agent = _FakeAgent  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "browser_use", fake_module)
+
+    ep_id = await run_episode("read self-rag", mem, CortexConfig())
+    facts = list(
+        mem.conn.execute(
+            "SELECT content, source_url FROM facts WHERE episode_id=?",
+            (ep_id,),
+        )
+    )
+    assert len(facts) == 1
+    assert "Self-RAG" in facts[0]["content"]
+    assert facts[0]["source_url"] == "https://arxiv.org/abs/2310.11511"

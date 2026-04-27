@@ -53,7 +53,8 @@ def init() -> None:
               type=click.Choice(["openai", "anthropic", "ollama"]),
               help="Which LLM provider to use.")
 @click.option("--model", default=None, help="Override the default model name.")
-@click.option("--max-steps", default=50, show_default=True, type=int)
+@click.option("--max-steps", default=50, show_default=True, type=int,
+              help="Hard cap on browser-use steps before the agent gives up.")
 def explore(task: tuple[str, ...], provider: str, model: str | None,
             max_steps: int) -> None:
     from .cortex import CortexConfig, run_episode  # deferred — avoids 200MB load
@@ -107,7 +108,10 @@ def _format_ts(ts: int | None) -> str:
     if not ts:
         return "-"
     import datetime as _dt
-    return _dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+    # UTC keeps replays consistent across machines / time zones.
+    return _dt.datetime.fromtimestamp(
+        ts, tz=_dt.timezone.utc
+    ).strftime("%Y-%m-%d %H:%M:%SZ")
 
 
 def _truncate(text: str | None, n: int) -> str:
@@ -129,11 +133,11 @@ def replay(episode: str | None, limit: int) -> None:
             if not rows:
                 click.echo("[recallo] no episodes yet")
                 return
-            click.echo(f"{'id':<36}  {'status':<8}  {'started':<19}  intent")
+            click.echo(f"{'id':<36}  {'status':<8}  {'started (UTC)':<20}  intent")
             for row in rows:
                 click.echo(
                     f"{row['id']}  {row['status']:<8}  "
-                    f"{_format_ts(row['started_at']):<19}  "
+                    f"{_format_ts(row['started_at']):<20}  "
                     f"{_truncate(row['intent'], 60)}"
                 )
             return

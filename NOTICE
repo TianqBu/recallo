@@ -1,0 +1,17 @@
+Recallo
+Copyright 2026 The Recallo Authors
+
+This product includes software developed by:
+
+  - browser-use (https://github.com/browser-use/browser-use), MIT
+  - trafilatura (https://github.com/adbar/trafilatura), Apache License 2.0
+  - sqlite-vec (https://github.com/asg017/sqlite-vec), Apache License 2.0 / MIT
+  - httpx (https://github.com/encode/httpx), BSD-3-Clause
+  - click (https://github.com/pallets/click), BSD-3-Clause
+
+PDF parsing in Recallo is optionally powered by MinerU
+(https://github.com/opendatalab/MinerU), used as an out-of-process HTTP
+service started by the user. No MinerU source is bundled or linked.
+
+For full third-party license texts and attribution requirements, see
+THIRD_PARTY_LICENSES.md.

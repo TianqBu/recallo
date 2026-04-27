@@ -41,9 +41,9 @@ dev = [
 recallo = "recallo.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/recallo/recallo"
-Repository = "https://github.com/recallo/recallo"
-Issues = "https://github.com/recallo/recallo/issues"
+Homepage = "https://github.com/TianqBu/recallo"
+Repository = "https://github.com/TianqBu/recallo"
+Issues = "https://github.com/TianqBu/recallo/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

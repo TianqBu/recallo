@@ -82,3 +82,24 @@ def test_cascade_delete_removes_traces_and_facts(mem: MemoryLane) -> None:
     mem.conn.execute("DELETE FROM episodes WHERE id=?", (ep.id,))
     assert mem.conn.execute("SELECT COUNT(*) FROM traces").fetchone()[0] == 0
     assert mem.conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0] == 0
+
+
+def test_search_facts_handles_fts5_operator_chars(mem: MemoryLane) -> None:
+    """Inputs with `-`, `:`, `"` used to crash with `fts5: syntax error`."""
+    ep = mem.start_episode("operators")
+    mem.insert_fact(Fact(episode_id=ep.id, kind="paper", content="Self-RAG paper"))
+    # All of these would have raised before the _fts5_escape fix.
+    assert mem.search_facts("self-rag") != []
+    assert mem.search_facts('"self rag"') != []
+    assert mem.search_facts("foo:bar") == []  # unrelated, but must not raise
+
+
+def test_resolve_episode_id_escapes_like_wildcards(mem: MemoryLane) -> None:
+    """A bare `%` would otherwise match every episode."""
+    mem.start_episode("alpha")
+    mem.start_episode("beta")
+    # `%` should NOT be a wildcard now that we escape it.
+    assert mem.resolve_episode_id("%") == []
+    # A real prefix still resolves
+    real = mem.list_episodes()[0]["id"]
+    assert mem.resolve_episode_id(real[:8]) == [real]

@@ -32,6 +32,11 @@ _VEC_SCHEMA = (
     f"CREATE VIRTUAL TABLE IF NOT EXISTS fact_vec USING vec0("
     f"embedding float[{EMBEDDING_DIM}]"
     f");"
+    # ON DELETE CASCADE doesn't propagate into vec0 virtual tables, so wire it
+    # up explicitly: when a fact row goes away, drop its embedding too.
+    "CREATE TRIGGER IF NOT EXISTS fact_vec_ad AFTER DELETE ON facts BEGIN"
+    "  DELETE FROM fact_vec WHERE rowid = old.id;"
+    "END;"
 )
 
 
@@ -86,15 +91,27 @@ class MemoryLane:
         db_path: Path | None = None,
         embedder: Embedder | None = None,
     ) -> None:
+        import os
+
         self.db_path = db_path or default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        existed = self.db_path.exists()
         self.conn = sqlite3.connect(self.db_path, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
-
-        self._vec_available = self._try_enable_vec()
-        self.conn.executescript(_load_schema())
-        if self._vec_available:
-            self.conn.executescript(_VEC_SCHEMA)
+        try:
+            self._vec_available = self._try_enable_vec()
+            self.conn.executescript(_load_schema())
+            if self._vec_available:
+                self.conn.executescript(_VEC_SCHEMA)
+        except Exception:
+            self.conn.close()
+            raise
+        # Lock the file down to the owner on POSIX; chmod is a no-op on Windows.
+        if not existed:
+            try:
+                os.chmod(self.db_path, 0o600)
+            except OSError:
+                pass
         self.embedder = embedder
 
     def _try_enable_vec(self) -> bool:
@@ -164,6 +181,8 @@ class MemoryLane:
             (fact.episode_id, fact.kind, fact.content, fact.source_url, fact.ts),
         )
         fact_id = cur.lastrowid
+        if fact_id is None:
+            raise RuntimeError("sqlite returned no lastrowid for facts insert")
         if self.embedder and self._vec_available:
             vec = self.embedder.embed(fact.content)
             if len(vec) != EMBEDDING_DIM:
@@ -176,6 +195,18 @@ class MemoryLane:
             )
         return fact_id
 
+    @staticmethod
+    def _fts5_escape(query: str) -> str:
+        """Wrap a user query as a single FTS5 phrase.
+
+        FTS5 treats characters like ``"``, ``-``, ``:``, ``(`` and ``AND`` as
+        operators; passing user input directly into MATCH triggers
+        ``sqlite3.OperationalError: fts5: syntax error`` on common inputs
+        like ``self-rag`` or ``"quoted"``. Wrapping the input as one phrase
+        and doubling internal quotes is the FTS5-recommended approach.
+        """
+        return '"' + (query or "").replace('"', '""') + '"'
+
     def search_facts(self, query: str, limit: int = 10) -> list[sqlite3.Row]:
         """FTS5 keyword search across ``facts`` (case-insensitive, ranked)."""
         return list(
@@ -186,7 +217,7 @@ class MemoryLane:
                    WHERE facts_fts MATCH ?
                    ORDER BY rank
                    LIMIT ?""",
-                (query, limit),
+                (self._fts5_escape(query), limit),
             )
         )
 
@@ -232,11 +263,19 @@ class MemoryLane:
         """Return episode ids whose id starts with ``prefix``.
 
         Returns one element on a unique match, more than one on ambiguity, and
-        the empty list on no match. CLI callers pick the policy.
+        the empty list on no match. CLI callers pick the policy. The prefix
+        is escaped so ``%`` and ``_`` from user input don't act as wildcards.
         """
+        if not prefix:
+            return []
+        # Escape LIKE metacharacters; ``\\`` is the escape char declared below.
+        escaped = (
+            prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
         rows = self.conn.execute(
-            "SELECT id FROM episodes WHERE id LIKE ? ORDER BY started_at DESC LIMIT 16",
-            (prefix + "%",),
+            "SELECT id FROM episodes WHERE id LIKE ? ESCAPE '\\' "
+            "ORDER BY started_at DESC LIMIT 16",
+            (escaped + "%",),
         ).fetchall()
         return [r["id"] for r in rows]
 

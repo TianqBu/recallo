@@ -44,9 +44,9 @@ class OpenAIEmbedder:
     def embed(self, text: str) -> list[float]:
         from openai import OpenAI  # deferred import — adds ~15MB of types
         client = OpenAI()
-        # OpenAI rejects empty strings; use a single space to keep callers simple.
-        if not text:
-            text = " "
+        # OpenAI rejects empty / whitespace-only strings; substitute a sentinel.
+        if not text or not text.strip():
+            text = "[empty]"
         resp = client.embeddings.create(model=self.model, input=text)
         return list(resp.data[0].embedding)
 
