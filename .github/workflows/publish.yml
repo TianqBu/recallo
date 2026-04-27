@@ -1,20 +1,22 @@
 name: Publish to PyPI
 
-# Two ways to trigger a release:
-#   1. Push a tag like v0.1.0 — publishes to PyPI.
-#   2. Manual `workflow_dispatch` — publishes to TestPyPI for dry runs.
+# Manual-only for now (PyPI publish is deferred — see CONTRIBUTING.md).
+# Run via Actions → Publish to PyPI → Run workflow → pick target.
 #
-# Setup (one-time):
-#   - PyPI: create a project-scoped API token at https://pypi.org/manage/account/token/
+# Setup (one-time, before first run):
+#   - PyPI: create an API token at https://pypi.org/manage/account/token/
 #     Add it as repo secret `PYPI_API_TOKEN`.
 #   - (optional) TestPyPI: token goes in `TEST_PYPI_API_TOKEN`.
 #
 # The version published is whatever is in pyproject.toml's `[project] version`.
-# Bump it BEFORE tagging so the tag and the wheel agree.
+# Bump + commit BEFORE running so git history matches the wheel.
+#
+# To re-enable tag-triggered publish later, add:
+#   on:
+#     push:
+#       tags: ['v*']
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       target:
@@ -64,13 +66,12 @@ jobs:
           path: dist/
 
   publish:
-    name: Upload to ${{ github.event_name == 'push' && 'PyPI' || inputs.target }}
+    name: Upload to ${{ inputs.target }}
     needs: build
     runs-on: ubuntu-latest
     environment:
-      # The user can configure required reviewers / secrets per environment
-      # in repo settings. Both names exist as soon as a release is made.
-      name: ${{ github.event_name == 'push' && 'pypi' || inputs.target }}
+      # Configure required reviewers / secrets per environment in repo settings.
+      name: ${{ inputs.target }}
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -87,14 +88,14 @@ jobs:
         run: python -m pip install twine
 
       - name: Upload to PyPI
-        if: github.event_name == 'push' || inputs.target == 'pypi'
+        if: inputs.target == 'pypi'
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: python -m twine upload --non-interactive dist/*
 
       - name: Upload to TestPyPI
-        if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+        if: inputs.target == 'testpypi'
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}

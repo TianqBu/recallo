@@ -12,8 +12,28 @@ stores everything in a local SQLite database under `~/.recallo/`. Next time
 you ask "what did that Self-RAG paper say about retrieval?", it answers from
 your past sessions — no cloud round-trip, no re-prompting.
 
-> **Status:** pre-alpha — the wheel installs and the four commands below
-> work, but expect rough edges and breaking changes before v0.2.
+```text
+$ recallo explore "Open arxiv 2310.11511 and summarize the Self-RAG abstract"
+[recallo] launching browser-use agent...
+  [0] navigate         https://arxiv.org/abs/2310.11511
+  [1] extract_content  Self-RAG: Learning to Retrieve, Generate, and Critique...
+  [2] done             3 step(s), 2 fact(s) extracted
+[recallo] episode 6e6c4710 stored
+
+# ...close terminal, open it again tomorrow...
+
+$ recallo recall "what did that paper say about retrieval?"
+[recallo] mode=semantic
+- [extract] Self-RAG uses self-reflection tokens to decide when to retrieve  (d=0.214)
+- [extract] On-demand retrieval improves factuality vs. always-retrieve baselines  (d=0.231)
+```
+
+The differentiator is the second command. It runs **without a network round-trip**
+— Recallo answers from `~/.recallo/memory.db` on your disk, even if you're
+offline.
+
+> **Status:** pre-alpha — the four commands below work and have tests, but
+> expect rough edges and breaking changes before v0.2.
 
 ## Why local-first?
 
@@ -72,6 +92,24 @@ the arxiv abstract page.
   loops can't `create_subprocess_exec`, which browser-use needs for Chromium)
 - If Chrome is in a non-default location, set
   `BROWSER_USE_BROWSER_PATH=C:\Path\To\chrome.exe`
+
+## How it works
+
+```mermaid
+flowchart LR
+    User([you]) -- intent --> CLI[recallo CLI]
+    CLI -- explore --> Cortex[Browser Cortex<br/>browser-use 0.12.6]
+    Cortex -- per-step callback --> Mem[(SQLite + sqlite-vec<br/>~/.recallo/memory.db)]
+    Cortex -- done callback --> Mem
+    CLI -- recall --> Mem
+    CLI -- replay --> Mem
+    Cortex -. PDF .-> Ingestor[Doc Ingestor<br/>MinerU API · trafilatura]
+    Ingestor --> Mem
+```
+
+Three tables (`episodes`, `traces`, `facts`), one FTS5 index, one optional
+`vec0` virtual table. Everything lives in a single SQLite file — no daemon,
+no Docker, no Postgres.
 
 ## What's stored
 
